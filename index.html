@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bataille Navale - Multijoueur WiFi</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+            padding: 10px;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .connection-panel {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .game-area {
+            display: none;
+        }
+
+        .grids-container {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .grid-section {
+            flex: 1;
+            min-width: 280px;
+            max-width: 350px;
+        }
+
+        .grid-title {
+            text-align: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 2px;
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 10px;
+            aspect-ratio: 1;
+        }
+
+        .cell {
+            background: #4a90e2;
+            border: 1px solid #357abd;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .cell:hover {
+            background: #5ba0f2;
+            transform: scale(1.05);
+        }
+
+        .cell.ship {
+            background: #2ecc71;
+            border-color: #27ae60;
+        }
+
+        .cell.hit {
+            background: #e74c3c;
+            border-color: #c0392b;
+        }
+
+        .cell.miss {
+            background: #95a5a6;
+            border-color: #7f8c8d;
+        }
+
+        .cell.sunk {
+            background: #8e44ad;
+            border-color: #7d3c98;
+        }
+
+        .status {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            font-size: 18px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        button:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        input {
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            margin: 5px;
+            font-size: 16px;
+            background: rgba(255,255,255,0.9);
+            color: #333;
+        }
+
+        .ship-placement {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .ship-list {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 15px 0;
+        }
+
+        .ship-item {
+            background: rgba(46, 204, 113, 0.8);
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .ship-item.selected {
+            background: #e74c3c;
+            transform: scale(1.1);
+        }
+
+        .ship-item.placed {
+            background: #7f8c8d;
+            cursor: not-allowed;
+        }
+
+        .messages {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 5px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        @media (max-width: 768px) {
+            .grids-container {
+                flex-direction: column;
+            }
+            
+            .grid {
+                max-width: 100%;
+            }
+            
+            .header h1 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚢 Bataille Navale WiFi 🚢</h1>
+        </div>
+
+        <!-- Panneau de connexion -->
+        <div class="connection-panel" id="connectionPanel">
+            <h2 style="text-align: center; margin-bottom: 15px;">Connexion Multijoueur</h2>
+            <div style="text-align: center;">
+                <button onclick="createRoom()">Créer une partie (Hôte)</button>
+                <button onclick="showJoinForm()">Rejoindre une partie</button>
+            </div>
+            
+            <div id="joinForm" style="display: none; margin-top: 15px; text-align: center;">
+                <input type="text" id="roomCode" placeholder="Code de la partie" maxlength="6">
+                <button onclick="joinRoom()">Rejoindre</button>
+            </div>
+            
+            <div id="roomInfo" style="display: none; text-align: center; margin-top: 15px;">
+                <p>Code de la partie: <strong id="currentRoomCode"></strong></p>
+                <p>En attente de l'adversaire...</p>
+            </div>
+        </div>
+
+        <!-- Zone de jeu -->
+        <div class="game-area" id="gameArea">
+            <!-- Placement des navires -->
+            <div class="ship-placement" id="shipPlacement">
+                <h3>Placez vos navires</h3>
+                <div class="ship-list" id="shipList">
+                    <div class="ship-item" data-ship="destroyer" data-size="2">Destroyer (2)</div>
+                    <div class="ship-item" data-ship="submarine" data-size="3">Sous-marin (3)</div>
+                    <div class="ship-item" data-ship="cruiser" data-size="3">Croiseur (3)</div>
+                    <div class="ship-item" data-ship="battleship" data-size="4">Cuirassé (4)</div>
+                    <div class="ship-item" data-ship="carrier" data-size="5">Porte-avions (5)</div>
+                </div>
+                <p>Sélectionnez un navire puis cliquez sur la grille pour le placer</p>
+                <button onclick="toggleOrientation()" id="orientationBtn">Orientation: Horizontal</button>
+                <button onclick="randomPlacement()">Placement aléatoire</button>
+                <button onclick="finishPlacement()" id="finishBtn" disabled>Terminer</button>
+            </div>
+
+            <div class="status" id="gameStatus">En attente...</div>
+
+            <div class="grids-container">
+                <div class="grid-section">
+                    <div class="grid-title">Votre flotte</div>
+                    <div class="grid" id="playerGrid"></div>
+                </div>
+                <div class="grid-section">
+                    <div class="grid-title">Grille ennemie</div>
+                    <div class="grid" id="enemyGrid"></div>
+                </div>
+            </div>
+
+            <div class="messages" id="messages">
+                <div class="message">Bienvenue dans la bataille navale !</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let gameState = {
+            isHost: false,
+            roomCode: '',
+            playerReady: false,
+            enemyReady: false,
+            myTurn: false,
+            gameStarted: false,
+            selectedShip: null,
+            horizontal: true,
+            ships: {
+                destroyer: { size: 2, placed: false, positions: [] },
+                submarine: { size: 3, placed: false, positions: [] },
+                cruiser: { size: 3, placed: false, positions: [] },
+                battleship: { size: 4, placed: false, positions: [] },
+                carrier: { size: 5, placed: false, positions: [] }
+            },
+            playerGrid: Array(10).fill().map(() => Array(10).fill(0)),
+            enemyGrid: Array(10).fill().map(() => Array(10).fill(0)),
+            enemyShips: {}
+        };
+
+        // Connexion WebRTC pour P2P direct
+        let peerConnection = null;
+        let dataChannel = null;
+        let isInitiator = false;
+        let connectionId = null;
+        
+        // Configuration WebRTC
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        // Service de signaling simple avec GitHub API (pour échange d'offres)
+        const GITHUB_REPO = 'temp-battleship-signaling'; // Vous devrez créer ce repo
+        const GITHUB_TOKEN = ''; // Token GitHub (optionnel, limite rate limiting)
+
+        // Initialisation des grilles
+        function initGrids() {
+            const playerGrid = document.getElementById('playerGrid');
+            const enemyGrid = document.getElementById('enemyGrid');
+            
+            playerGrid.innerHTML = '';
+            enemyGrid.innerHTML = '';
+            
+            for (let i = 0; i < 100; i++) {
+                const playerCell = document.createElement('div');
+                playerCell.className = 'cell';
+                playerCell.dataset.index = i;
+                playerCell.addEventListener('click', () => placeShip(i));
+                playerGrid.appendChild(playerCell);
+                
+                const enemyCell = document.createElement('div');
+                enemyCell.className = 'cell';
+                enemyCell.dataset.index = i;
+                enemyCell.addEventListener('click', () => attack(i));
+                enemyGrid.appendChild(enemyCell);
+            }
+        }
+
+        // Créer une partie WebRTC
+        async function createRoom() {
+            try {
+                gameState.isHost = true;
+                isInitiator = true;
+                gameState.roomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
+                gameState.myTurn = true;
+                connectionId = gameState.roomCode;
+                
+                // Créer la connexion WebRTC
+                peerConnection = new RTCPeerConnection(rtcConfig);
+                setupPeerConnection();
+                
+                // Créer le canal de données
+                dataChannel = peerConnection.createDataChannel('battleship', {
+                    ordered: true
+                });
+                setupDataChannel(dataChannel);
+                
+                // Créer l'offre
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                
+                // Publier l'offre (simulation avec localStorage pour GitHub Pages)
+                const offerData = {
+                    type: 'offer',
+                    sdp: offer.sdp,
+                    roomCode: gameState.roomCode,
+                    timestamp: Date.now()
+                };
+                
+                // En production, utilisez un service de signaling
+                localStorage.setItem(`battleship_offer_${gameState.roomCode}`, JSON.stringify(offerData));
+                
+                document.getElementById('currentRoomCode').textContent = gameState.roomCode;
+                document.getElementById('roomInfo').style.display = 'block';
+                addMessage(`Partie créée avec le code: ${gameState.roomCode}`);
+                addMessage('En attente d\'un adversaire...');
+                
+                // Polling pour vérifier les réponses
+                pollForAnswer();
+                
+            } catch (error) {
+                console.error('Erreur création partie:', error);
+                addMessage('Erreur lors de la création de la partie');
+            }
+        }
+
+        // Afficher le formulaire de connexion
+        function showJoinForm() {
+            document.getElementById('joinForm').style.display = 'block';
+        }
+
+        // Rejoindre une partie WebRTC
+        async function joinRoom() {
+            try {
+                const code = document.getElementById('roomCode').value.toUpperCase();
+                if (code.length !== 6) return;
+                
+                gameState.roomCode = code;
+                gameState.isHost = false;
+                gameState.myTurn = false;
+                connectionId = code;
+                
+                // Récupérer l'offre
+                const offerData = localStorage.getItem(`battleship_offer_${code}`);
+                if (!offerData) {
+                    addMessage('Partie non trouvée');
+                    return;
+                }
+                
+                const offer = JSON.parse(offerData);
+                
+                // Créer la connexion WebRTC
+                peerConnection = new RTCPeerConnection(rtcConfig);
+                setupPeerConnection();
+                
+                // Gérer le canal de données entrant
+                peerConnection.ondatachannel = (event) => {
+                    setupDataChannel(event.channel);
+                };
+                
+                // Définir la description distante
+                await peerConnection.setRemoteDescription({
+                    type: 'offer',
+                    sdp: offer.sdp
+                });
+                
+                // Créer et envoyer la réponse
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                
+                const answerData = {
+                    type: 'answer',
+                    sdp: answer.sdp,
+                    roomCode: code,
+                    timestamp: Date.now()
+                };
+                
+                localStorage.setItem(`battleship_answer_${code}`, JSON.stringify(answerData));
+                addMessage('Connexion en cours...');
+                
+            } catch (error) {
+                console.error('Erreur connexion:', error);
+                addMessage('Erreur lors de la connexion');
+            }
+        }
+
+        // Configuration de la connexion peer
+        function setupPeerConnection() {
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    // Stocker les candidats ICE
+                    const candidates = JSON.parse(localStorage.getItem(`battleship_ice_${connectionId}`) || '[]');
+                    candidates.push({
+                        candidate: event.candidate.candidate,
+                        sdpMid: event.candidate.sdpMid,
+                        sdpMLineIndex: event.candidate.sdpMLineIndex,
+                        from: isInitiator ? 'host' : 'guest'
+                    });
+                    localStorage.setItem(`battleship_ice_${connectionId}`, JSON.stringify(candidates));
+                }
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                addMessage(`État de connexion: ${peerConnection.connectionState}`);
+                if (peerConnection.connectionState === 'connected') {
+                    addMessage('Connexion établie !');
+                    startGame();
+                }
+            };
+        }
+
+        // Configuration du canal de données
+        function setupDataChannel(channel) {
+            dataChannel = channel;
+            
+            channel.onopen = () => {
+                addMessage('Canal de données ouvert');
+            };
+            
+            channel.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+            
+            channel.onerror = (error) => {
+                console.error('Erreur canal:', error);
+            };
+        }
+
+        // Polling pour les réponses (hôte)
+        function pollForAnswer() {
+            const checkAnswer = () => {
+                const answerData = localStorage.getItem(`battleship_answer_${gameState.roomCode}`);
+                if (answerData) {
+                    const answer = JSON.parse(answerData);
+                    peerConnection.setRemoteDescription({
+                        type: 'answer',
+                        sdp: answer.sdp
+                    });
+                    addMessage('Réponse reçue, connexion...');
+                    pollForIceCandidates();
+                } else {
+                    setTimeout(checkAnswer, 1000);
+                }
+            };
+            checkAnswer();
+        }
+
+        // Polling pour les candidats ICE
+        function pollForIceCandidates() {
+            const checkCandidates = () => {
+                const candidates = JSON.parse(localStorage.getItem(`battleship_ice_${connectionId}`) || '[]');
+                const otherSide = isInitiator ? 'guest' : 'host';
+                
+                candidates.forEach(async (candidate) => {
+                    if (candidate.from === otherSide && !candidate.processed) {
+                        try {
+                            await peerConnection.addIceCandidate({
+                                candidate: candidate.candidate,
+                                sdpMid: candidate.sdpMid,
+                                sdpMLineIndex: candidate.sdpMLineIndex
+                            });
+                            candidate.processed = true;
+                        } catch (error) {
+                            console.error('Erreur ICE candidate:', error);
+                        }
+                    }
+                });
+                
+                localStorage.setItem(`battleship_ice_${connectionId}`, JSON.stringify(candidates));
+                
+                if (peerConnection.connectionState !== 'connected') {
+                    setTimeout(checkCandidates, 1000);
+                }
+            };
+            setTimeout(checkCandidates, 1000);
+        }
+
+        // Envoyer des données
+        function sendData(data) {
+            if (dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send(JSON.stringify(data));
+                return true;
+            }
+            return false;
+        }
+
+        // Démarrer le jeu
+        function startGame() {
+            document.getElementById('connectionPanel').style.display = 'none';
+            document.getElementById('gameArea').style.display = 'block';
+            initGrids();
+            updateStatus('Placez vos navires sur votre grille');
+        }
+
+        // Sélectionner un navire à placer
+        function selectShip(shipType) {
+            if (gameState.ships[shipType].placed) return;
+            
+            gameState.selectedShip = shipType;
+            document.querySelectorAll('.ship-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            document.querySelector(`[data-ship="${shipType}"]`).classList.add('selected');
+        }
+
+        // Placer un navire
+        function placeShip(index) {
+            if (!gameState.selectedShip || gameState.gameStarted) return;
+            
+            const ship = gameState.ships[gameState.selectedShip];
+            if (ship.placed) return;
+            
+            const row = Math.floor(index / 10);
+            const col = index % 10;
+            const positions = [];
+            
+            // Vérifier si le placement est valide
+            for (let i = 0; i < ship.size; i++) {
+                let newRow = row;
+                let newCol = col;
+                
+                if (gameState.horizontal) {
+                    newCol += i;
+                } else {
+                    newRow += i;
+                }
+                
+                if (newRow >= 10 || newCol >= 10) return;
+                if (gameState.playerGrid[newRow][newCol] !== 0) return;
+                
+                positions.push({ row: newRow, col: newCol, index: newRow * 10 + newCol });
+            }
+            
+            // Placer le navire
+            positions.forEach(pos => {
+                gameState.playerGrid[pos.row][pos.col] = gameState.selectedShip;
+                document.querySelector(`#playerGrid .cell[data-index="${pos.index}"]`).classList.add('ship');
+            });
+            
+            ship.placed = true;
+            ship.positions = positions;
+            
+            document.querySelector(`[data-ship="${gameState.selectedShip}"]`).classList.add('placed');
+            gameState.selectedShip = null;
+            
+            checkAllShipsPlaced();
+        }
+
+        // Changer l'orientation
+        function toggleOrientation() {
+            gameState.horizontal = !gameState.horizontal;
+            document.getElementById('orientationBtn').textContent = 
+                `Orientation: ${gameState.horizontal ? 'Horizontal' : 'Vertical'}`;
+        }
+
+        // Placement aléatoire
+        function randomPlacement() {
+            // Réinitialiser
+            gameState.playerGrid = Array(10).fill().map(() => Array(10).fill(0));
+            Object.keys(gameState.ships).forEach(key => {
+                gameState.ships[key].placed = false;
+                gameState.ships[key].positions = [];
+            });
+            
+            // Placer aléatoirement
+            Object.keys(gameState.ships).forEach(shipType => {
+                const ship = gameState.ships[shipType];
+                let placed = false;
+                let attempts = 0;
+                
+                while (!placed && attempts < 100) {
+                    const horizontal = Math.random() < 0.5;
+                    const row = Math.floor(Math.random() * 10);
+                    const col = Math.floor(Math.random() * 10);
+                    const positions = [];
+                    let valid = true;
+                    
+                    for (let i = 0; i < ship.size; i++) {
+                        let newRow = row;
+                        let newCol = col;
+                        
+                        if (horizontal) {
+                            newCol += i;
+                        } else {
+                            newRow += i;
+                        }
+                        
+                        if (newRow >= 10 || newCol >= 10 || gameState.playerGrid[newRow][newCol] !== 0) {
+                            valid = false;
+                            break;
+                        }
+                        
+                        positions.push({ row: newRow, col: newCol, index: newRow * 10 + newCol });
+                    }
+                    
+                    if (valid) {
+                        positions.forEach(pos => {
+                            gameState.playerGrid[pos.row][pos.col] = shipType;
+                        });
+                        ship.placed = true;
+                        ship.positions = positions;
+                        placed = true;
+                    }
+                    
+                    attempts++;
+                }
+            });
+            
+            // Mettre à jour l'affichage
+            document.querySelectorAll('#playerGrid .cell').forEach((cell, index) => {
+                const row = Math.floor(index / 10);
+                const col = index % 10;
+                cell.className = 'cell';
+                if (gameState.playerGrid[row][col] !== 0) {
+                    cell.classList.add('ship');
+                }
+            });
+            
+            document.querySelectorAll('.ship-item').forEach(item => {
+                item.classList.add('placed');
+            });
+            
+            checkAllShipsPlaced();
+        }
+
+        // Vérifier si tous les navires sont placés
+        function checkAllShipsPlaced() {
+            const allPlaced = Object.values(gameState.ships).every(ship => ship.placed);
+            document.getElementById('finishBtn').disabled = !allPlaced;
+        }
+
+        // Terminer le placement
+        function finishPlacement() {
+            gameState.playerReady = true;
+            document.getElementById('shipPlacement').style.display = 'none';
+            
+            // Envoyer l'état de prêt à l'adversaire
+            sendData({
+                type: 'player_ready',
+                ships: gameState.ships
+            });
+            
+            updateStatus('En attente de l\'adversaire...');
+            
+            if (gameState.enemyReady) {
+                startBattle();
+            }
+        }
+
+        // Commencer la bataille
+        function startBattle() {
+            gameState.gameStarted = true;
+            updateStatus(gameState.myTurn ? 'À votre tour - Cliquez sur la grille ennemie' : 'Tour de l\'adversaire');
+            addMessage('La bataille commence !');
+        }
+
+        // Attaquer
+        function attack(index) {
+            if (!gameState.gameStarted || !gameState.myTurn) return;
+            
+            const row = Math.floor(index / 10);
+            const col = index % 10;
+            
+            if (gameState.enemyGrid[row][col] !== 0) return; // Déjà attaqué
+            
+            // Envoyer l'attaque à l'adversaire
+            sendData({
+                type: 'attack',
+                position: { row, col, index }
+            });
+            
+            gameState.myTurn = false;
+            updateStatus('En attente de la réponse...');
+        }
+
+        // Traiter une attaque reçue
+        function processAttack(position) {
+            const { row, col, index } = position;
+            const cell = document.querySelector(`#playerGrid .cell[data-index="${index}"]`);
+            let hit = false;
+            let sunk = false;
+            let sunkShip = null;
+            
+            // Vérifier si c'est un navire
+            if (typeof gameState.playerGrid[row][col] === 'string') {
+                hit = true;
+                const shipType = gameState.playerGrid[row][col];
+                cell.classList.add('hit');
+                cell.textContent = '💥';
+                
+                // Vérifier si le navire est coulé
+                const ship = gameState.ships[shipType];
+                const hitPositions = ship.positions.filter(pos => {
+                    const shipCell = document.querySelector(`#playerGrid .cell[data-index="${pos.index}"]`);
+                    return shipCell.classList.contains('hit');
+                });
+                
+                if (hitPositions.length === ship.size) {
+                    sunk = true;
+                    sunkShip = shipType;
+                    ship.positions.forEach(pos => {
+                        const shipCell = document.querySelector(`#playerGrid .cell[data-index="${pos.index}"]`);
+                        shipCell.classList.add('sunk');
+                    });
+                }
+                
+                addMessage(`L'ennemi vous a touché en ${String.fromCharCode(65+col)}${row+1} !`);
+                if (sunk) {
+                    addMessage(`Votre ${shipType} a été coulé !`);
+                }
+            } else {
+                cell.classList.add('miss');
+                cell.textContent = '💧';
+                addMessage(`L'ennemi a raté en ${String.fromCharCode(65+col)}${row+1}`);
+            }
+            
+            // Renvoyer le résultat
+            sendData({
+                type: 'attack_result',
+                hit,
+                sunk,
+                sunkShip,
+                position
+            });
+            
+            // Vérifier la victoire
+            if (checkDefeat()) {
+                endGame(false);
+                return;
+            }
+            
+            if (!hit) {
+                gameState.myTurn = true;
+                updateStatus('À votre tour - Cliquez sur la grille ennemie');
+            }
+        }
+
+        // Traiter le résultat d'une attaque
+        function processAttackResult(result) {
+            const { hit, sunk, sunkShip, position } = result;
+            const { row, col, index } = position;
+            const cell = document.querySelector(`#enemyGrid .cell[data-index="${index}"]`);
+            
+            if (hit) {
+                gameState.enemyGrid[row][col] = 2;
+                cell.classList.add('hit');
+                cell.textContent = '💥';
+                addMessage(`Touché en ${String.fromCharCode(65+col)}${row+1} !`);
+                
+                if (sunk) {
+                    cell.classList.add('sunk');
+                    addMessage(`${sunkShip} ennemi coulé !`);
+                    
+                    // Vérifier la victoire
+                    if (checkVictory()) {
+                        endGame(true);
+                        return;
+                    }
+                }
+                
+                // Le joueur continue s'il a touché
+                gameState.myTurn = true;
+                updateStatus('Touché ! À vous de jouer');
+            } else {
+                gameState.enemyGrid[row][col] = 1;
+                cell.classList.add('miss');
+                cell.textContent = '💧';
+                addMessage(`Raté en ${String.fromCharCode(65+col)}${row+1}`);
+                updateStatus('Tour de l\'adversaire');
+            }
+        }
+
+        // Vérifier la défaite
+        function checkDefeat() {
+            return Object.values(gameState.ships).every(ship => {
+                return ship.positions.every(pos => {
+                    const cell = document.querySelector(`#playerGrid .cell[data-index="${pos.index}"]`);
+                    return cell.classList.contains('hit');
+                });
+            });
+        }
+
+        // Vérifier la victoire (estimation basée sur les coups réussis)
+        function checkVictory() {
+            const hitCells = document.querySelectorAll('#enemyGrid .cell.hit').length;
+            return hitCells >= 17; // Total des cases de navires (2+3+3+4+5)
+        }
+
+        // Fin de partie
+        function endGame(victory) {
+            gameState.gameStarted = false;
+            const message = victory ? '🎉 Victoire ! 🎉' : '💥 Défaite ! 💥';
+            updateStatus(message);
+            addMessage(victory ? 'Félicitations, vous avez gagné !' : 'Dommage, vous avez perdu...');
+            
+            // Désactiver les interactions
+            document.querySelectorAll('#enemyGrid .cell').forEach(cell => {
+                cell.style.pointerEvents = 'none';
+            });
+        }
+
+        // Mettre à jour le statut
+        function updateStatus(message) {
+            document.getElementById('gameStatus').textContent = message;
+        }
+
+        // Ajouter un message
+        function addMessage(message) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            messageDiv.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Gérer les messages réseau
+        function handleMessage(data) {
+            console.log('Message reçu:', data);
+            
+            switch (data.type) {
+                case 'player_ready':
+                    gameState.enemyReady = true;
+                    gameState.enemyShips = data.ships;
+                    addMessage('Adversaire prêt !');
+                    if (gameState.playerReady) {
+                        startBattle();
+                    }
+                    break;
+                    
+                case 'attack':
+                    processAttack(data.position);
+                    break;
+                    
+                case 'attack_result':
+                    processAttackResult(data);
+                    break;
+                    
+                case 'chat_message':
+                    addMessage(`Adversaire: ${data.message}`);
+                    break;
+                    
+                case 'game_reset':
+                    resetGame();
+                    break;
+            }
+        }
+
+        // Réinitialiser le jeu
+        function resetGame() {
+            gameState = {
+                isHost: false,
+                roomCode: '',
+                playerReady: false,
+                enemyReady: false,
+                myTurn: false,
+                gameStarted: false,
+                selectedShip: null,
+                horizontal: true,
+                ships: {
+                    destroyer: { size: 2, placed: false, positions: [] },
+                    submarine: { size: 3, placed: false, positions: [] },
+                    cruiser: { size: 3, placed: false, positions: [] },
+                    battleship: { size: 4, placed: false, positions: [] },
+                    carrier: { size: 5, placed: false, positions: [] }
+                },
+                playerGrid: Array(10).fill().map(() => Array(10).fill(0)),
+                enemyGrid: Array(10).fill().map(() => Array(10).fill(0)),
+                enemyShips: {}
+            };
+            
+            document.getElementById('connectionPanel').style.display = 'block';
+            document.getElementById('gameArea').style.display = 'none';
+            document.getElementById('shipPlacement').style.display = 'block';
+            
+            // Nettoyer localStorage
+            if (connectionId) {
+                localStorage.removeItem(`battleship_offer_${connectionId}`);
+                localStorage.removeItem(`battleship_answer_${connectionId}`);
+                localStorage.removeItem(`battleship_ice_${connectionId}`);
+            }
+        }
+
+        // Fonction de nettoyage au démarrage
+        function cleanupOldSessions() {
+            const keys = Object.keys(localStorage);
+            const now = Date.now();
+            const maxAge = 30 * 60 * 1000; // 30 minutes
+            
+            keys.forEach(key => {
+                if (key.startsWith('battleship_')) {
+                    try {
+                        const data = JSON.parse(localStorage.getItem(key));
+                        if (data.timestamp && (now - data.timestamp) > maxAge) {
+                            localStorage.removeItem(key);
+                        }
+                    } catch (e) {
+                        localStorage.removeItem(key);
+                    }
+                }
+            });
+        }
+
+        // Initialisation au chargement
+        document.addEventListener('DOMContentLoaded', function() {
+            cleanupOldSessions();
+            
+            document.querySelectorAll('.ship-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    selectShip(this.dataset.ship);
+                });
+            });
+            
+            // Ajouter un bouton de reset
+            const resetBtn = document.createElement('button');
+            resetBtn.textContent = 'Nouvelle partie';
+            resetBtn.onclick = resetGame;
+            resetBtn.style.margin = '10px';
+            document.querySelector('.container').appendChild(resetBtn);
+        });
+    </script>
+</body>
+</html>
