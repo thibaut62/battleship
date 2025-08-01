@@ -235,11 +235,10 @@
             <h1>🚢 Bataille Navale WiFi 🚢</h1>
         </div>
 
-        <!-- Panneau de connexion -->
         <div class="connection-panel" id="connectionPanel">
             <h2 style="text-align: center; margin-bottom: 15px;">Connexion Multijoueur</h2>
             <div style="text-align: center;">
-                <button onclick="createRoom()">Créer une partie (Hôte)</button>
+                <button onclick="createRoom()">Créer une partie</button>
                 <button onclick="showJoinForm()">Rejoindre une partie</button>
             </div>
             
@@ -254,9 +253,7 @@
             </div>
         </div>
 
-        <!-- Zone de jeu -->
         <div class="game-area" id="gameArea">
-            <!-- Placement des navires -->
             <div class="ship-placement" id="shipPlacement">
                 <h3>Placez vos navires</h3>
                 <div class="ship-list" id="shipList">
@@ -291,10 +288,11 @@
         </div>
     </div>
 
+    <script src="/socket.io/socket.io.js"></script>
+
     <script>
         // Variables globales
         let gameState = {
-            isHost: false,
             roomCode: '',
             playerReady: false,
             enemyReady: false,
@@ -314,23 +312,64 @@
             enemyShips: {}
         };
 
-        // Connexion WebRTC pour P2P direct
-        let peerConnection = null;
-        let dataChannel = null;
-        let isInitiator = false;
-        let connectionId = null;
-        
-        // Configuration WebRTC
-        const rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
-            ]
-        };
+        let socket;
 
-        // Service de signaling simple avec GitHub API (pour échange d'offres)
-        const GITHUB_REPO = 'temp-battleship-signaling'; // Vous devrez créer ce repo
-        const GITHUB_TOKEN = ''; // Token GitHub (optionnel, limite rate limiting)
+        // Connexion au serveur de signalisation
+        function initSocket() {
+            // Remplacez 'localhost:3000' par l'adresse IP de votre Raspberry Pi et le port 
+            // Si vous n'êtes pas sûr, vous pouvez utiliser l'adresse 
+            // affichée par la console de Node.js (ex: http://192.168.1.10:3000)
+            socket = io('http://192.168.0.2:3001'); 
+
+            socket.on('connect', () => {
+                addMessage('Connecté au serveur de jeu.');
+            });
+
+            socket.on('error', (message) => {
+                addMessage(`Erreur serveur: ${message}`);
+            });
+            
+            socket.on('room_created', (roomCode) => {
+                gameState.roomCode = roomCode;
+                gameState.myTurn = true;
+                document.getElementById('currentRoomCode').textContent = roomCode;
+                document.getElementById('roomInfo').style.display = 'block';
+                addMessage(`Partie créée avec le code: ${roomCode}`);
+                addMessage('En attente d\'un adversaire...');
+            });
+            
+            socket.on('room_joined', () => {
+                addMessage('Vous avez rejoint la partie.');
+                startGame();
+            });
+
+            socket.on('guest_joined', () => {
+                addMessage('Un adversaire a rejoint la partie.');
+            });
+
+            socket.on('opponent_ready', (data) => {
+                gameState.enemyReady = true;
+                gameState.enemyShips = data.ships;
+                addMessage('Adversaire prêt !');
+                if (gameState.playerReady) {
+                    startBattle();
+                }
+            });
+
+            socket.on('attack_received', (data) => {
+                processAttack(data.position);
+            });
+
+            socket.on('attack_result_received', (data) => {
+                processAttackResult(data);
+            });
+
+            socket.on('opponent_disconnected', () => {
+                addMessage('L\'adversaire s\'est déconnecté. La partie est terminée.');
+                // Gérer la fin de partie ici
+                resetGame();
+            });
+        }
 
         // Initialisation des grilles
         function initGrids() {
@@ -355,52 +394,13 @@
             }
         }
 
-        // Créer une partie WebRTC
-        async function createRoom() {
-            try {
-                gameState.isHost = true;
-                isInitiator = true;
-                gameState.roomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
-                gameState.myTurn = true;
-                connectionId = gameState.roomCode;
-                
-                // Créer la connexion WebRTC
-                peerConnection = new RTCPeerConnection(rtcConfig);
-                setupPeerConnection();
-                
-                // Créer le canal de données
-                dataChannel = peerConnection.createDataChannel('battleship', {
-                    ordered: true
-                });
-                setupDataChannel(dataChannel);
-                
-                // Créer l'offre
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                
-                // Publier l'offre (simulation avec localStorage pour GitHub Pages)
-                const offerData = {
-                    type: 'offer',
-                    sdp: offer.sdp,
-                    roomCode: gameState.roomCode,
-                    timestamp: Date.now()
-                };
-                
-                // En production, utilisez un service de signaling
-                localStorage.setItem(`battleship_offer_${gameState.roomCode}`, JSON.stringify(offerData));
-                
-                document.getElementById('currentRoomCode').textContent = gameState.roomCode;
-                document.getElementById('roomInfo').style.display = 'block';
-                addMessage(`Partie créée avec le code: ${gameState.roomCode}`);
-                addMessage('En attente d\'un adversaire...');
-                
-                // Polling pour vérifier les réponses
-                pollForAnswer();
-                
-            } catch (error) {
-                console.error('Erreur création partie:', error);
-                addMessage('Erreur lors de la création de la partie');
-            }
+        // Créer une partie
+        function createRoom() {
+            const roomCode = Math.random().toString(36).substr(2, 6).toUpperCase();
+            socket.emit('create_room', roomCode);
+            document.getElementById('connectionPanel').style.display = 'none';
+            document.getElementById('gameArea').style.display = 'block';
+            initGrids();
         }
 
         // Afficher le formulaire de connexion
@@ -408,168 +408,30 @@
             document.getElementById('joinForm').style.display = 'block';
         }
 
-        // Rejoindre une partie WebRTC
-        async function joinRoom() {
-            try {
-                const code = document.getElementById('roomCode').value.toUpperCase();
-                if (code.length !== 6) return;
-                
-                gameState.roomCode = code;
-                gameState.isHost = false;
-                gameState.myTurn = false;
-                connectionId = code;
-                
-                // Récupérer l'offre
-                const offerData = localStorage.getItem(`battleship_offer_${code}`);
-                if (!offerData) {
-                    addMessage('Partie non trouvée');
-                    return;
-                }
-                
-                const offer = JSON.parse(offerData);
-                
-                // Créer la connexion WebRTC
-                peerConnection = new RTCPeerConnection(rtcConfig);
-                setupPeerConnection();
-                
-                // Gérer le canal de données entrant
-                peerConnection.ondatachannel = (event) => {
-                    setupDataChannel(event.channel);
-                };
-                
-                // Définir la description distante
-                await peerConnection.setRemoteDescription({
-                    type: 'offer',
-                    sdp: offer.sdp
-                });
-                
-                // Créer et envoyer la réponse
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                
-                const answerData = {
-                    type: 'answer',
-                    sdp: answer.sdp,
-                    roomCode: code,
-                    timestamp: Date.now()
-                };
-                
-                localStorage.setItem(`battleship_answer_${code}`, JSON.stringify(answerData));
-                addMessage('Connexion en cours...');
-                
-            } catch (error) {
-                console.error('Erreur connexion:', error);
-                addMessage('Erreur lors de la connexion');
-            }
-        }
-
-        // Configuration de la connexion peer
-        function setupPeerConnection() {
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    // Stocker les candidats ICE
-                    const candidates = JSON.parse(localStorage.getItem(`battleship_ice_${connectionId}`) || '[]');
-                    candidates.push({
-                        candidate: event.candidate.candidate,
-                        sdpMid: event.candidate.sdpMid,
-                        sdpMLineIndex: event.candidate.sdpMLineIndex,
-                        from: isInitiator ? 'host' : 'guest'
-                    });
-                    localStorage.setItem(`battleship_ice_${connectionId}`, JSON.stringify(candidates));
-                }
-            };
-
-            peerConnection.onconnectionstatechange = () => {
-                addMessage(`État de connexion: ${peerConnection.connectionState}`);
-                if (peerConnection.connectionState === 'connected') {
-                    addMessage('Connexion établie !');
-                    startGame();
-                }
-            };
-        }
-
-        // Configuration du canal de données
-        function setupDataChannel(channel) {
-            dataChannel = channel;
+        // Rejoindre une partie
+        function joinRoom() {
+            const code = document.getElementById('roomCode').value.toUpperCase();
+            if (code.length !== 6) return;
             
-            channel.onopen = () => {
-                addMessage('Canal de données ouvert');
-            };
-            
-            channel.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                handleMessage(data);
-            };
-            
-            channel.onerror = (error) => {
-                console.error('Erreur canal:', error);
-            };
-        }
+            gameState.roomCode = code;
+            gameState.myTurn = false;
+            socket.emit('join_room', code);
 
-        // Polling pour les réponses (hôte)
-        function pollForAnswer() {
-            const checkAnswer = () => {
-                const answerData = localStorage.getItem(`battleship_answer_${gameState.roomCode}`);
-                if (answerData) {
-                    const answer = JSON.parse(answerData);
-                    peerConnection.setRemoteDescription({
-                        type: 'answer',
-                        sdp: answer.sdp
-                    });
-                    addMessage('Réponse reçue, connexion...');
-                    pollForIceCandidates();
-                } else {
-                    setTimeout(checkAnswer, 1000);
-                }
-            };
-            checkAnswer();
-        }
-
-        // Polling pour les candidats ICE
-        function pollForIceCandidates() {
-            const checkCandidates = () => {
-                const candidates = JSON.parse(localStorage.getItem(`battleship_ice_${connectionId}`) || '[]');
-                const otherSide = isInitiator ? 'guest' : 'host';
-                
-                candidates.forEach(async (candidate) => {
-                    if (candidate.from === otherSide && !candidate.processed) {
-                        try {
-                            await peerConnection.addIceCandidate({
-                                candidate: candidate.candidate,
-                                sdpMid: candidate.sdpMid,
-                                sdpMLineIndex: candidate.sdpMLineIndex
-                            });
-                            candidate.processed = true;
-                        } catch (error) {
-                            console.error('Erreur ICE candidate:', error);
-                        }
-                    }
-                });
-                
-                localStorage.setItem(`battleship_ice_${connectionId}`, JSON.stringify(candidates));
-                
-                if (peerConnection.connectionState !== 'connected') {
-                    setTimeout(checkCandidates, 1000);
-                }
-            };
-            setTimeout(checkCandidates, 1000);
-        }
-
-        // Envoyer des données
-        function sendData(data) {
-            if (dataChannel && dataChannel.readyState === 'open') {
-                dataChannel.send(JSON.stringify(data));
-                return true;
-            }
-            return false;
+            document.getElementById('connectionPanel').style.display = 'none';
+            document.getElementById('gameArea').style.display = 'block';
+            initGrids();
+            updateStatus('En attente de l\'adversaire...');
         }
 
         // Démarrer le jeu
         function startGame() {
-            document.getElementById('connectionPanel').style.display = 'none';
-            document.getElementById('gameArea').style.display = 'block';
-            initGrids();
             updateStatus('Placez vos navires sur votre grille');
+            // ... reste du code pour démarrer le jeu
+        }
+
+        // Envoyer des données
+        function sendData(type, payload) {
+            socket.emit('message', { roomCode: gameState.roomCode, type, payload });
         }
 
         // Sélectionner un navire à placer
@@ -635,6 +497,7 @@
 
         // Placement aléatoire
         function randomPlacement() {
+            // ... (le code pour le placement aléatoire reste le même)
             // Réinitialiser
             gameState.playerGrid = Array(10).fill().map(() => Array(10).fill(0));
             Object.keys(gameState.ships).forEach(key => {
@@ -715,10 +578,7 @@
             document.getElementById('shipPlacement').style.display = 'none';
             
             // Envoyer l'état de prêt à l'adversaire
-            sendData({
-                type: 'player_ready',
-                ships: gameState.ships
-            });
+            sendData('player_ready', { ships: gameState.ships });
             
             updateStatus('En attente de l\'adversaire...');
             
@@ -744,10 +604,7 @@
             if (gameState.enemyGrid[row][col] !== 0) return; // Déjà attaqué
             
             // Envoyer l'attaque à l'adversaire
-            sendData({
-                type: 'attack',
-                position: { row, col, index }
-            });
+            sendData('attack', { row, col, index });
             
             gameState.myTurn = false;
             updateStatus('En attente de la réponse...');
@@ -795,13 +652,7 @@
             }
             
             // Renvoyer le résultat
-            sendData({
-                type: 'attack_result',
-                hit,
-                sunk,
-                sunkShip,
-                position
-            });
+            sendData('attack_result', { hit, sunk, sunkShip, position });
             
             // Vérifier la victoire
             if (checkDefeat()) {
@@ -901,7 +752,7 @@
             switch (data.type) {
                 case 'player_ready':
                     gameState.enemyReady = true;
-                    gameState.enemyShips = data.ships;
+                    gameState.enemyShips = data.payload.ships;
                     addMessage('Adversaire prêt !');
                     if (gameState.playerReady) {
                         startBattle();
@@ -909,15 +760,15 @@
                     break;
                     
                 case 'attack':
-                    processAttack(data.position);
+                    processAttack(data.payload);
                     break;
                     
                 case 'attack_result':
-                    processAttackResult(data);
+                    processAttackResult(data.payload);
                     break;
                     
                 case 'chat_message':
-                    addMessage(`Adversaire: ${data.message}`);
+                    addMessage(`Adversaire: ${data.payload.message}`);
                     break;
                     
                 case 'game_reset':
@@ -929,7 +780,6 @@
         // Réinitialiser le jeu
         function resetGame() {
             gameState = {
-                isHost: false,
                 roomCode: '',
                 playerReady: false,
                 enemyReady: false,
@@ -953,37 +803,12 @@
             document.getElementById('gameArea').style.display = 'none';
             document.getElementById('shipPlacement').style.display = 'block';
             
-            // Nettoyer localStorage
-            if (connectionId) {
-                localStorage.removeItem(`battleship_offer_${connectionId}`);
-                localStorage.removeItem(`battleship_answer_${connectionId}`);
-                localStorage.removeItem(`battleship_ice_${connectionId}`);
-            }
-        }
-
-        // Fonction de nettoyage au démarrage
-        function cleanupOldSessions() {
-            const keys = Object.keys(localStorage);
-            const now = Date.now();
-            const maxAge = 30 * 60 * 1000; // 30 minutes
-            
-            keys.forEach(key => {
-                if (key.startsWith('battleship_')) {
-                    try {
-                        const data = JSON.parse(localStorage.getItem(key));
-                        if (data.timestamp && (now - data.timestamp) > maxAge) {
-                            localStorage.removeItem(key);
-                        }
-                    } catch (e) {
-                        localStorage.removeItem(key);
-                    }
-                }
-            });
+            // ... autres réinitialisations si nécessaire
         }
 
         // Initialisation au chargement
         document.addEventListener('DOMContentLoaded', function() {
-            cleanupOldSessions();
+            initSocket();
             
             document.querySelectorAll('.ship-item').forEach(item => {
                 item.addEventListener('click', function() {
@@ -991,7 +816,6 @@
                 });
             });
             
-            // Ajouter un bouton de reset
             const resetBtn = document.createElement('button');
             resetBtn.textContent = 'Nouvelle partie';
             resetBtn.onclick = resetGame;
